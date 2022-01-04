@@ -9,7 +9,7 @@ sh env.sh
 ```
 Train
 ```bash
-python train.pycd
+python train.py
 ```
 Test
 ```bash

@@ -1,3 +1,6 @@
+"""
+python tools/len_mv_mp4.py --srcvid0 source_media/A2.mp4 --srcvid1 source_media/L2.mp4 --srcvid2 source_media/R2.mp4 --pkl1 飞书20220129-210653_labeled_smooth.pkl --pkl2 飞书20220129-210549_labeled_smooth.pkl --output_name out.mp4
+"""
 import cv2, os
 from moviepy import *
 from moviepy.editor import *
@@ -5,6 +8,7 @@ import numpy as np
 import imageio
 from tqdm import tqdm
 import pandas as pd
+import argparse
 
 class MvLens:
     def __init__(self, fullwidth, fullheight, step=300, padding_scale=1.1):
@@ -15,7 +19,9 @@ class MvLens:
 
     def apply_lensmv(self, x1, y1, x2, y2, curr_step, mvtint):
         #0 None, 1 left, -1 right, 2 up, -2 down, 3 zoomin, -3 zoomout, 4 left zoomin, -4 right zoomout, 5 right zoomin, -5 left zoomout, 6 up zoomin, -6 down zoomout, 7 down zoomin, -7 up zoomout
-        if mvtint == 1:
+        if mvtint == 0:
+            x1_out, y1_out, x2_out, y2_out = x1, y1, x2, y2
+        elif mvtint == 1:
             x1_out, y1_out, x2_out, y2_out = self.apply_left(x1, y1, x2, y2, curr_step)
         elif mvtint == -1:
             x1_out, y1_out, x2_out, y2_out = self.apply_right(x1, y1, x2, y2, curr_step)
@@ -143,43 +149,63 @@ class MvLens:
         return x1, y1, x2, y2
 
 if __name__ == '__main__':
+    # construct the argument parse and parse the arguments
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--pkl1", required=True, type=str, default='飞书20220129-210653_labeled_smooth.pkl', help='smoothing 之后的 pkl file for left srcvid')
+    ap.add_argument("--pkl2", required=True, type=str, default='飞书20220129-210549_labeled_smooth.pkl', help='smoothing 之后的 pkl file for right srcvid')
+    ap.add_argument("--srcvid0", required=True, type=str, default="A30_rec.mp4", help='大全机位的 source video')
+    ap.add_argument("--srcvid1", required=True, type=str, default="L30.mp4", help='左机位的 srcvid')
+    ap.add_argument("--srcvid2", required=True, type=str, default="R30.mp4", help='右机位的 srcvid')
+    ap.add_argument("--output_name", required=True, type=str, default="out.mp4", help='output filename')
+    ap.add_argument("--padding_scale", type=float, default=1.1, help='how much to pad relative to height and width')
+    ap.add_argument("--len_mv_steps", type=int, default=300, help='number of frames over which 运镜 occurs, for slower movement enter larger value')
+    ap.add_argument("--res_frame", type=int, default=75, help='number of frames for start and end slices')
+    ap.add_argument("--avg_stay", type=float, default=150, help='average number of frames each slice should last')
+    ap.add_argument("--min_stay", type=float, default=100, help='minimum number of frames each slice should last')
+    ap.add_argument("--crop_flag", action='store_true', help='allow 人员特写')
+    ap.add_argument("--len_mv_flag", action='store_true', help='allow 运镜效果')
+    ap.add_argument("--h", type=int, default=1080)
+    ap.add_argument("--w", type = int, default=1920)
+    args = vars(ap.parse_args())
+
     ## 设置参数
     # 视频存放、导出路径
     data_root = ''
     # 场景理解pkl
-    pkl1 = '飞书20220129-210653_labeled_smooth.pkl'
-    pkl2 = '飞书20220129-210549_labeled_smooth.pkl'
+    pkl1 = args["pkl1"] #'飞书20220129-210653_labeled_smooth.pkl'
+    pkl2 = args["pkl2"] #'飞书20220129-210549_labeled_smooth.pkl'
     # 原始视频名称，注：下面list中第一个一定要放大全机位
     #src_list = ['A30_rec.mp4','L30.mp4','R30.mp4']
-    src_list = ['source_media/A2.mp4','source_media/L2.mp4','source_media/R2.mp4']
-    output_name = 'out.mp4'
+    #src_list = ['source_media/A2.mp4','source_media/L2.mp4','source_media/R2.mp4']
+    src_list = [args["srcvid0"], args["srcvid1"], args["srcvid2"]]
+    output_name = args["output_name"] #'out.mp4'
     output_path = os.path.join(data_root, output_name)
-    w = 1920
-    h = 1080
+    w = args["w"] #1920
+    h = args["h"] #1080
     # 是否导入音轨
     audio_flag = False
     # 音频路径
     bgm_path = 'source_media/bgm.mp3'
     # 是否增加单人特写剪裁
-    crop_flag = True
+    crop_flag = args["crop_flag"] #True
     # 是否添加运镜：只有在裁剪模式下才可以运镜，运镜分zoom in / zoom out / shift left / shift right / shift up /shift down，运镜方式可组合
-    len_mv_flag = True
+    len_mv_flag = args["len_mv_flag"] #True
     # 可能的裁剪情况：大全（开场谢幕用）、每个人员的特写、舞台所有人全画幅展示（左右机位）、多个演员之间的互动（后面再说）
     actor_amount =  3
     position_amount = 3
     assert position_amount==len(src_list), "错误提示：机位个数和输入视频数不等"
     # 开头和结尾slice帧数，初始化75，大约各3s大全，可改
-    res_frame = 75
+    res_frame = args["res_frame"] #75
     # 每个slice平均时长，假定每个slice的平均时长是6s（约150帧），可改
-    avg_stay = 150
+    avg_stay = args["avg_stay"] #150
     # 每个slice的最小时长，e.g., 4s，可改
-    min_stay = 100
+    min_stay = args["min_stay"] #100
     # 演员id初始化 Tips: 更新底库需重写
     actor_id_list = [0,1,2]
     # 检测框向外扩展系数，可改
-    padding_scale = 1.1
+    padding_scale = args["padding_scale"] #1.1
     # lens movement total steps, for slower movement put larger steps
-    len_mv_steps = 300
+    len_mv_steps = args["len_mv_steps"] #300
 
     ## 随机初始化
     reader = imageio.get_reader(os.path.join(data_root, src_list[0]))
@@ -233,7 +259,8 @@ if __name__ == '__main__':
     video_writer = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'MP4V'), fps, (w, h))
     flag_start = True
     curr_step = 0 # for lens movement
-    for frame_cur_num in tqdm(range(total_frame_num)):
+    for frame_cur_num in tqdm(range(120)):
+    #for frame_cur_num in tqdm(range(total_frame_num)):
         frame_cur_num = int(frame_cur_num)
         # 确定当前时刻是否换机位，如果不换则延续上一帧reader | # update curr_step for lens movement if crop_id changes
         if flag_start:

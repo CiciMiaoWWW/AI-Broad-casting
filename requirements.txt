@@ -1,7 +1,9 @@
+dlib==19.23.0
 dominate==2.6.0                          
 ffmpeg-python==0.2.0                            
 imageio==2.9.0              
 imageio-ffmpeg==0.4.4              
+imutils==0.5.4
 matplotlib==3.3.4                           
 numpy==1.18.3             
 opencv-python==4.2.0.34            

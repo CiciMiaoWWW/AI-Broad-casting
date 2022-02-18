@@ -299,12 +299,7 @@ if __name__ == '__main__':
 
     ## 随机初始化
     reader = imageio.get_reader(os.path.join(data_root, src_list[0]))
-    fps1 = reader.get_meta_data()['fps']
-    reader = imageio.get_reader(os.path.join(data_root, src_list[1]))
-    fps2 = reader.get_meta_data()['fps']
-    reader = imageio.get_reader(os.path.join(data_root, src_list[2]))
-    fps3 = reader.get_meta_data()['fps']
-    print(fps1, fps2, fps3)
+    fps = reader.get_meta_data()['fps']
     cap=cv2.VideoCapture(os.path.join(data_root, src_list[0]))
     total_frame_num=int(cap.get(7))
 

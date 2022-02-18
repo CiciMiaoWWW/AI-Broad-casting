@@ -28,9 +28,9 @@ def process_video_multiprocessing(group_number):
             cap = cv2.VideoCapture(os.path.join(data_root, src_list[position_id[frame_cur_num]])) 
             _,img=cap.read()  #read方法返回一个布尔值和一个视频帧。若帧读取成功，则返回True
             height, width, _ = img.shape
-            x1_prev, y1_prev, x2_prev, y2_prev = width/3, height/3, width/3*2, height # init previous coords values
+            x1_prev, y1_prev, x2_prev, y2_prev = 0, 0, width, height # init previous coords values
         # 确定当前时刻是否换机位，如果不换则延续上一帧reader 
-        if (slice_id[frame_cur_num] != slice_id[frame_cur_num-1]):
+        elif (slice_id[frame_cur_num] != slice_id[frame_cur_num-1]):
             cap = cv2.VideoCapture(os.path.join(data_root, src_list[position_id[frame_cur_num]]))
             curr_step = 0 # reset to 0 at start of each slice
         else:
@@ -55,7 +55,7 @@ def process_video_multiprocessing(group_number):
                     if float(info['conf'][i]) > bbox_conf_thresh: # only select bbox with high enough confidence to avoid false detections
                         x1,y1,x2,y2 = float(info['x1'][i])*width,float(info['y1'][i])*height,float(info['x2'][i])*width,float(info['y2'][i])*height
                         # prevent large changes in crop box over consecutive frames
-                        if [x1_prev, y1_prev, x2_prev, y2_prev] != [width/3, height/3, width/3*2, height] and curr_step!=0: 
+                        if [x1_prev, y1_prev, x2_prev, y2_prev] != [0, 0, width, height] and curr_step!=0: 
                             change_thresh = [(x2_prev-x1_prev)*0.1, (y2_prev-y1_prev)*0.1] # set threshold at 10% of bbox width, height
                             if abs(x1-x1_prev)>change_thresh[0] or abs(x2-x2_prev)>change_thresh[0] or abs(y1-y1_prev)>change_thresh[1] or abs(y2-y2_prev)>change_thresh[1]:
                                 x1, y1, x2, y2 = x1_prev, y1_prev, x2_prev, y2_prev
@@ -67,12 +67,17 @@ def process_video_multiprocessing(group_number):
                 if curr_step != 0:
                     x1, y1, x2, y2 = x1_prev, y1_prev, x2_prev, y2_prev # use bbox from previous frame
                 else: # if it's the start of the slice, then swap the intended actor for 左右全景
-                    x1 = width/3
-                    y1 = height/3
-                    x2 = width/3 * 2
+                    x1 = 0
+                    y1 = 0
+                    x2 = width
                     y2 = height
                     crop_id[slice_id==curr_slice_id] = 3 # set to 左右全景
                     len_mv_id[slice_id==curr_slice_id] = 0 # set to still
+        elif crop_id[frame_cur_num] ==3:
+            x1 = 0
+            y1 = 0
+            x2 = width
+            y2 = height
         else: # for 全景 
             x1 = width/3
             y1 = height/3
@@ -294,7 +299,12 @@ if __name__ == '__main__':
 
     ## 随机初始化
     reader = imageio.get_reader(os.path.join(data_root, src_list[0]))
-    fps = reader.get_meta_data()['fps']
+    fps1 = reader.get_meta_data()['fps']
+    reader = imageio.get_reader(os.path.join(data_root, src_list[1]))
+    fps2 = reader.get_meta_data()['fps']
+    reader = imageio.get_reader(os.path.join(data_root, src_list[2]))
+    fps3 = reader.get_meta_data()['fps']
+    print(fps1, fps2, fps3)
     cap=cv2.VideoCapture(os.path.join(data_root, src_list[0]))
     total_frame_num=int(cap.get(7))
 
@@ -345,9 +355,10 @@ if __name__ == '__main__':
     crop_id = slice_id.copy()
     crop_id[slice_id==0] = len(actor_id_list)+2
     for i in range(1,int(np.max(slice_id))+1):
-        crop_id[slice_id==i] = np.random.randint(0,len(actor_id_list)+1)
+        crop_id[slice_id==i] = np.random.randint(0,len(actor_id_list)+2)
         while crop_id[slice_id==i][0] == crop_id[slice_id==i-1][0]: # make sure its not two consecutive actors at the same time
-            crop_id[slice_id==i] = np.random.randint(0,len(actor_id_list))
+            crop_id[slice_id==i] = np.random.randint(0,len(actor_id_list)+2)
+    crop_id[crop_id==4] = 3
     # halfbody 初始化
     halfbody_id = slice_id.copy()
     for i in range(0,int(np.max(slice_id))+1):

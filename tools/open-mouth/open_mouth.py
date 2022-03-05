@@ -35,6 +35,7 @@ ap.add_argument("-v", "--video", default="trump.mp4",
 	help="video path input")
 ap.add_argument("--height", default=None)
 ap.add_argument("--width", default=None)
+ap.add_argument("-o", "--output", default="output.txt")
 args = vars(ap.parse_args())
 
 # define one constants, for mouth aspect ratio to indicate open mouth
@@ -74,56 +75,59 @@ else:
 count = 0
 
 # loop over frames from the video stream
-while True:
-	# grab the frame from the threaded video file stream, resize
-	# it, and convert it to grayscale
-	# channels)
-	frame = fvs.read()
-	
-	if frame is None:
-		break
-	frame = imutils.resize(frame, width=frame_width, height=frame_height)
-	#frame = imutils.resize(frame)
-	gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+with open(args["output"], 'w') as f:
+	while True:
+		# grab the frame from the threaded video file stream, resize
+		# it, and convert it to grayscale
+		# channels)
+		frame = fvs.read()
+		
+		if frame is None:
+			break
+		frame = imutils.resize(frame, width=frame_width, height=frame_height)
+		#frame = imutils.resize(frame)
+		gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-	# detect faces in the grayscale frame
-	rects = detector(gray, 0)
+		# detect faces in the grayscale frame
+		rects = detector(gray, 0)
 
-	# loop over the face detections
-	for rect in rects:
-		# determine the facial landmarks for the face region, then
-		# convert the facial landmark (x, y)-coordinates to a NumPy
-		# array
-		shape = predictor(gray, rect)
-		shape = face_utils.shape_to_np(shape)
+		# loop over the face detections
+		for rect in rects:
+			# determine the facial landmarks for the face region, then
+			# convert the facial landmark (x, y)-coordinates to a NumPy
+			# array
+			shape = predictor(gray, rect)
+			shape = face_utils.shape_to_np(shape)
 
-		# extract the mouth coordinates, then use the
-		# coordinates to compute the mouth aspect ratio
-		mouth = shape[mStart:mEnd]
-		mar = mouth_aspect_ratio(mouth)
+			# extract the mouth coordinates, then use the
+			# coordinates to compute the mouth aspect ratio
+			mouth = shape[mStart:mEnd]
+			mar = mouth_aspect_ratio(mouth)
 
-		# compute the convex hull for the mouth, then
-		# visualize the mouth
-		mouthHull = cv2.convexHull(mouth)
+			# compute the convex hull for the mouth, then
+			# visualize the mouth
+			mouthHull = cv2.convexHull(mouth)
 
-		cv2.drawContours(frame, [mouthHull], -1, (0, 255, 0), 1)
-		cv2.putText(frame, "MAR: {:.2f}".format(mar), (30, 30),
-			cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+			cv2.drawContours(frame, [mouthHull], -1, (0, 255, 0), 1)
+			cv2.putText(frame, "MAR: {:.2f}".format(mar), (30, 30),
+				cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
-        # Draw text if mouth is open
-		if mar > MOUTH_AR_THRESH:
-			cv2.putText(frame, "Mouth is Open!", (30,60),
-			cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,255),2)
-	# Write the frame into the file 'output.avi'
-	out.write(frame)
-	# show the frame
-	cv2.imshow("Frame", frame)
-	key = cv2.waitKey(1) & 0xFF
+			# Draw text if mouth is open
+			if mar > MOUTH_AR_THRESH:
+				cv2.putText(frame, "Mouth is Open!", (30,60),
+				cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,255),2)
+			
+			print(count, rect, mar, 1 if mar > MOUTH_AR_THRESH else 0, file = f)
+		# Write the frame into the file 'output.avi'
+		out.write(frame)
+		# show the frame
+		cv2.imshow("Frame", frame)
+		key = cv2.waitKey(1) & 0xFF
 
-	# if the `q` key was pressed, break from the loop
-	if key == ord("q"):
-		break
-	count += 1
+		# if the `q` key was pressed, break from the loop
+		if key == ord("q"):
+			break
+		count += 1
 
 # do a bit of cleanup
 cv2.destroyAllWindows()

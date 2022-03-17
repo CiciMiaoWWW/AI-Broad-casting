@@ -1,15 +1,26 @@
 import numpy as np
 import scipy.signal 
+import argparse
 
-MOUTH_AR_THRESH = 0.6
+ap = argparse.ArgumentParser()
+ap.add_argument("-i", "--input", required=False, default='output.txt',
+	help="input file")
+ap.add_argument("-p", "--people", default=3,
+	help="number of people detected")
+ap.add_argument("-m", "--mouth-ar-thresh", required=False, default=0.6,
+    help="threshold of open-moth detection")
+args = vars(ap.parse_args())
 
-people = 3
+MOUTH_AR_THRESH = float(args["mouth_ar_thresh"])
+
+people = int(args['people']) 
+
 info = [[] for i in range(people)]
 
 # input
 pos = []
 v = []
-with open("output.txt.bk", "r") as f:
+with open(args["input"], "r") as f:
     for line in f.readlines():
         line = line.split(" ")
         # print(line)
@@ -24,8 +35,9 @@ with open("output.txt.bk", "r") as f:
         })
 
 # group
-size = len(pos)
 
+size = len(pos)
+# BUG：就是第一帧必须检测到所有人的嘴，不然可能会挂
 last = [[] for i in range(people)]
 for i in range(people):
     last[i] = pos[i]

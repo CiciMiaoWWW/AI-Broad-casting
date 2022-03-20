@@ -1,5 +1,5 @@
 """
-python tools/len_mv_mp4.py --srcvidfiles align-videos/A_5min_large2.mp4 align-videos/L_5min_large2.mp4 align-videos/R_5min_large2.mp4 --output_name out_5min_ts_conf075_offl15r91_lens400.mp4 --pklfiles L_5min_labeled_smooth.pkl R_5min_labeled_smooth.pkl --crop_flag --len_mv_flag --len_mv_steps 400 --bbox_conf_thresh 0.75 --offsets_manual 0 0 0 --q_sz 256 --decode_sleep 1.0 --audioseg_pkl audio_segmentation/5min_audioseg.pkl
+python tools/len_mv_mp4.py --srcvidfiles align-videos/A_5min_large2.mp4 align-videos/L_5min_large2.mp4 align-videos/R_5min_large2.mp4 --output_name out_5min_ts_conf075_offl15r91_lens400.mp4 --pklfiles L_5min_labeled_smooth.pkl R_5min_labeled_smooth.pkl --crop_flag --len_mv_flag --len_mv_steps 400 --bbox_conf_thresh 0.75 --q_sz 256 --decode_sleep 1.0 --audioseg_pkl audio_segmentation/5min_audioseg.pkl
 """
 import cv2, os
 import numpy as np
@@ -11,9 +11,9 @@ import os
 from threading import Thread
 from queue import Queue
 import time
+from videoreader import VideoReader
 
-
-# divide frames into a few groups for multiprocessing
+# main video processing
 def process_video():
     ## 写MP4
     video_writer = cv2.VideoWriter(output_name, cv2.VideoWriter_fourcc(*'MP4V'), fps, (w, h))
@@ -28,24 +28,24 @@ def process_video():
             flag_start = False
             curr_step = frame_cur_num - list(slice_id).index(curr_slice_id) # init curr_step for lens movement, curr_step=0 at the start of each slice 
             if position_id[frame_cur_num] == 0:
-                fvs = FileVideoStream(os.path.join(data_root, src_list[position_id[frame_cur_num]]), queueSize=q_sz, startframenum=frame_cur_num - offsets_manual[0], num_frames_tot=dict_numframesperslice[curr_slice_id]).start()
+                fvs = FileVideoStream(os.path.join(data_root, src_list[position_id[frame_cur_num]]), queueSize=q_sz, startframenum=frame_cur_num, num_frames_tot=dict_numframesperslice[curr_slice_id]).start()
             elif position_id[frame_cur_num] == 1:
-                fvs = FileVideoStream(os.path.join(data_root, src_list[position_id[frame_cur_num]]), queueSize=q_sz, startframenum=frame_cur_num - offsets_manual[1], num_frames_tot=dict_numframesperslice[curr_slice_id]).start()
+                fvs = FileVideoStream(os.path.join(data_root, src_list[position_id[frame_cur_num]]), queueSize=q_sz, startframenum=frame_cur_num, num_frames_tot=dict_numframesperslice[curr_slice_id]).start()
             elif position_id[frame_cur_num] == 2:
-                fvs = FileVideoStream(os.path.join(data_root, src_list[position_id[frame_cur_num]]), queueSize=q_sz, startframenum=frame_cur_num - offsets_manual[2], num_frames_tot=dict_numframesperslice[curr_slice_id]).start()
-            time.sleep(decode_sleep)
+                fvs = FileVideoStream(os.path.join(data_root, src_list[position_id[frame_cur_num]]), queueSize=q_sz, startframenum=frame_cur_num, num_frames_tot=dict_numframesperslice[curr_slice_id]).start()
+            time.sleep(decode_sleep) # let thread handle video decoding of a batch of frames at one shot
             height,width = fvs.get_heightwidth()
             x1_prev, y1_prev, x2_prev, y2_prev = 0, 0, width, height # init previous coords values
         # 确定当前时刻是否换机位，如果不换则延续上一帧reader 
         elif (slice_id[frame_cur_num] != slice_id[frame_cur_num-1]):
             #cap = cv2.VideoCapture(os.path.join(data_root, src_list[position_id[frame_cur_num]]))
             if position_id[frame_cur_num] == 0:
-                fvs = FileVideoStream(os.path.join(data_root, src_list[position_id[frame_cur_num]]), queueSize=q_sz, startframenum=frame_cur_num - offsets_manual[0], num_frames_tot=dict_numframesperslice[curr_slice_id]).start()
+                fvs = FileVideoStream(os.path.join(data_root, src_list[position_id[frame_cur_num]]), queueSize=q_sz, startframenum=frame_cur_num, num_frames_tot=dict_numframesperslice[curr_slice_id]).start()
             elif position_id[frame_cur_num] == 1:
-                fvs = FileVideoStream(os.path.join(data_root, src_list[position_id[frame_cur_num]]), queueSize=q_sz, startframenum=frame_cur_num - offsets_manual[1], num_frames_tot=dict_numframesperslice[curr_slice_id]).start()
+                fvs = FileVideoStream(os.path.join(data_root, src_list[position_id[frame_cur_num]]), queueSize=q_sz, startframenum=frame_cur_num, num_frames_tot=dict_numframesperslice[curr_slice_id]).start()
             elif position_id[frame_cur_num] == 2:
-                fvs = FileVideoStream(os.path.join(data_root, src_list[position_id[frame_cur_num]]), queueSize=q_sz, startframenum=frame_cur_num - offsets_manual[2], num_frames_tot=dict_numframesperslice[curr_slice_id]).start()
-            time.sleep(decode_sleep)
+                fvs = FileVideoStream(os.path.join(data_root, src_list[position_id[frame_cur_num]]), queueSize=q_sz, startframenum=frame_cur_num, num_frames_tot=dict_numframesperslice[curr_slice_id]).start()
+            time.sleep(decode_sleep) # let thread handle video decoding
             curr_step = 0 # reset to 0 at start of each slice
         else:
             curr_step = curr_step + 1 # increment for increased lens mvt
@@ -103,28 +103,32 @@ def process_video():
             # apply lens movement: 目前全部的运镜设置成同样的 speed, but possible to have different speed for each slice
             if halfbody_id[frame_cur_num] and crop_flag and crop_id[frame_cur_num]<=2: 
                 x1_, y1_, x2_, y2_ = len_mv.apply_lensmv(x1, y1, x2, y2 - (y2-y1)/2, curr_step, len_mv_id[frame_cur_num], len_mv_steps)
-            elif h > w:
+            elif h > w and mode_wideshot==3:
                 x1_, y1_, x2_, y2_ = len_mv.apply_lensmv(x1, y1, x2, y2, curr_step, 1, 60) # right panning
             else:
                 x1_, y1_, x2_, y2_ = len_mv.apply_lensmv(x1, y1, x2, y2, curr_step, len_mv_id[frame_cur_num], len_mv_steps)
             
         # post crop processing: padding + ensure aspect ratio
-        x1_, y1_, x2_, y2_ = len_mv.post_crop_processing(x1_, y1_, x2_, y2_) # after len mvt
-
+        x1_p, y1_p, x2_p, y2_p = len_mv.post_crop_processing(x1_, y1_, x2_, y2_) # after len mvt
+    
         # check if bbox still present after len mv
         if crop_flag and crop_id[frame_cur_num]<=2:
             if halfbody_id[frame_cur_num]:
-                if (x1_ > x1) or (y1_ > y1) or (x2_ < x2) or (y2_ < y2/2):
+                if (x1_p > x1) or (y1_p > y1) or (x2_p < x2) or (y2_p < y2/2):
                     curr_step = curr_step - 1 # stop lens movement
             else:
-                if (x1_ > x1) or (y1_ > y1) or (x2_ < x2) or (y2_ < y2):
+                if (x1_p > x1) or (y1_p > y1) or (x2_p < x2) or (y2_p < y2):
                     curr_step = curr_step - 1 # stop lens movement
-        elif crop_id[frame_cur_num] == 3 and w>h:
-            if (x1_ > x1)  or (x2_ < x2):
+        elif crop_id[frame_cur_num] == 3 and mode_wideshot!=3:
+            if (x1_p > x1)  or (x2_p < x2):
                 curr_step = curr_step - 1 # stop lens movement
-
-        img = img[int(y1_):int(y2_),int(x1_):int(x2_),:] # int might introduce rounding errors?
-        out = cv2.resize(img, (w, h), interpolation=cv2.INTER_LANCZOS4)
+        
+        # final output frame to be rendered
+        if h > w and crop_id[frame_cur_num] > 2 and mode_wideshot!=3: # vertical mode dealing with wide shots
+            out = len_mv.vertmode_wideshot_processing(x1_, y1_, x2_, y2_, mode_wideshot, img) # coordinates before postprocessing
+        else:
+            img = img[int(y1_p):int(y2_p),int(x1_p):int(x2_p),:] # int might introduce rounding errors?
+            out = cv2.resize(img, (w, h), interpolation=cv2.INTER_LANCZOS4)
         video_writer.write(out)
 
 
@@ -234,21 +238,57 @@ class MvLens: # for lens movement, and post-processing (padding + ensuring aspec
             x1, x2 = x1_, x2_
         return x1, y1, x2, y2
 
+    def vertmode_wideshot_processing(self, x1, y1, x2, y2, mode_int, img):
+        """
+        set how 全景 is diplayed in vertical mode: 0 - padding with black pixels; 1 - padding with reflection; 2 - blur background; 3 - slide and move across scene
+        """
+        des_width, des_height = self.des_width, self.des_height
+        tmp_width, tmp_height = des_width, des_height//3 # dimensions after splitting vertical screen into 3
+        self.des_width, self.des_height = tmp_width, tmp_height
+        x1_,y1_,x2_,y2_ = self.post_crop_processing(x1,y1,x2,y2)
+        middle_scene = img[int(y1_):int(y2_),int(x1_):int(x2_),:] 
+        middle_scene = cv2.resize(middle_scene, (tmp_width, tmp_height), interpolation=cv2.INTER_LANCZOS4)
+        if mode_int == 0: # Pad zeros on top and below
+            vert_output = cv2.copyMakeBorder(middle_scene,tmp_height,tmp_height, 0, 0,cv2.BORDER_CONSTANT,value=[0,0,0])
+        elif mode_int == 1: # Pad with reflection
+            vert_output = cv2.copyMakeBorder(middle_scene,tmp_height,tmp_height, 0, 0,cv2.BORDER_REFLECT)
+        elif mode_int == 2: # Blur background
+            # take centre des_width x des_height crop from entire image
+            self.des_width, self.des_height = des_width, des_height
+            x1_,y1_,x2_,y2_ = self.post_crop_processing(x1*1.2,y1*2,x2*0.8,y2*0.8)
+            background = img[int(y1_):int(y2_),int(x1_):int(x2_),:] 
+            background = cv2.resize(background, (des_width, des_height), interpolation=cv2.INTER_LANCZOS4)
+
+            kernelsz = min(des_width, des_height)//10 * 2 + 1
+            vert_output = cv2.GaussianBlur(background, (kernelsz, kernelsz),0)
+            vert_output[des_height//2 - tmp_height//2:des_height//2 + tmp_height//2, :, :] = middle_scene
+        elif mode_int == 3: # Slide: implemented in process_video()
+            pass 
+        elif mode_int == 4:
+            kernelsz = min(tmp_width, tmp_height)//7 * 2 + 1
+            bg = cv2.GaussianBlur(middle_scene, (kernelsz, kernelsz),0)
+            vert_output = np.vstack((bg, middle_scene, bg))
+        
+        return vert_output
+
+
 class FileVideoStream:
     def __init__(self, path, queueSize=128, startframenum=0, num_frames_tot=0):
         # initialize the file video stream along with the boolean
         # # used to indicate if the thread should be stopped or not
-        self.stream = cv2.VideoCapture(path)
-        self.stream.set(cv2.CAP_PROP_POS_FRAMES,startframenum)
+        self.stream = VideoReader(path)
+        self.stream.seek(startframenum)
         self.stopped = False
         self.num_frames_curr = 0
         self.num_frames_tot = num_frames_tot
         # initialize the queue used to store frames read from
         # the video file
         self.Q = Queue(maxsize=queueSize)
+        self.path = path
 
     def get_heightwidth(self):
-        return self.stream.get(cv2.CAP_PROP_FRAME_HEIGHT), self.stream.get(cv2.CAP_PROP_FRAME_WIDTH) 
+        cap = cv2.VideoCapture(self.path)
+        return cap.get(cv2.CAP_PROP_FRAME_HEIGHT), cap.get(cv2.CAP_PROP_FRAME_WIDTH) 
 
     def start(self):
         # start a thread to read frames from the file video stream
@@ -266,10 +306,9 @@ class FileVideoStream:
             # otherwise, ensure the queue has room in it
             if not self.Q.full():
                 # read the next frame from the file
-                (grabbed, frame) = self.stream.read()
-                # if the `grabbed` boolean is `False`, then we have
-                # reached the end of the video file
-                if not grabbed:
+                frame = self.stream.read()
+
+                if frame is None:
                     self.stop()
                     return
                 # add the frame to the queue
@@ -307,9 +346,9 @@ if __name__ == '__main__':
     ap.add_argument("--bbox_conf_thresh", type=float, default=0.75, help='bbox detection confidence threshold from detect.py, only crops with confidence higher than threshold will be selected')
     ap.add_argument("--h", type=int, default=1080)
     ap.add_argument("--w", type = int, default=1920)
-    ap.add_argument("--offsets_manual", action='store', type=int, default=[0,0,0], nargs=3, help='manually enter frame offsets for input videos, in order of 大全、左、右机位')
     ap.add_argument("--q_sz", action='store', type=int, default=256, help='buffer size to store video frames, depends on video res and system memory')
     ap.add_argument("--decode_sleep", action='store', type=float, default=1.0, help='time(s) to sleep for thread to decode the video frames in buffer')
+    ap.add_argument("--mode_wideshot", type=int, default=0, help='set how 全景 is diplayed in vertical mode: 0 - padding with black pixels; 1 - padding with reflection; 2 - blur background; 3 - slide and move across scene')
     args = vars(ap.parse_args())
 
     ## 设置参数
@@ -345,18 +384,18 @@ if __name__ == '__main__':
     min_stay = 100
     # 演员id初始化 Tips: 更新底库需重写
     actor_id_list = [0,1,2]
-    # manual offsets (in frames)
-    offsets_manual = args["offsets_manual"]
     # sleep after decoding frame, 否则解帧会一直抢主进程的CPU到100%，不给其他线程CPU空间进行图像预处理和后处理
     decode_sleep = args["decode_sleep"]
     q_sz = args["q_sz"]
     # crop box (x1,y1,x2,y2) for 全景：大全、左、右机位
-    if w > h: # horizontal mode
-        wide_crop_boxes = [[0.333, 0.333, 0.667, 1], [0.08, 0.4, 0.93, 1], [0.25, 0.333, 0.875, 1]]
-    else: # vertical mode
+    wide_crop_boxes = [[0.333, 0.333, 0.667, 1], [0.1, 0.4, 0.9, 1], [0.25, 0.333, 0.875, 1]]
+    # vertical mode
+    # set how 全景 is diplayed in vertical mode: 0 - padding with black pixels; 1 - blur background; 2 - split screen into 3 actors; 3- split into gray + col + gray, 4 - slide and move across scene
+    mode_wideshot = args["mode_wideshot"] # 0, 1, 2, 3, 4
+    if mode_wideshot == 3: # slide and move across scene
         wide_crop_boxes = [[0.333, 0.333, 0.444, 1], [0.05, 0.4, 0.3, 1], [0.2, 0.333, 0.4, 1]]
+        
    
-
     ## 随机初始化
     total_frame_num = 1000000000000000000 # random large number
     for i in range(len(src_list)):
@@ -426,7 +465,6 @@ if __name__ == '__main__':
     for i in range(1,int(np.max(slice_id))+1): 
         position_id[slice_id==i] = np.random.randint(1,len(src_list))
     position_id = position_id.astype(np.int32)
-    position_id[slice_id==1] = 1 # make sure first middle slice is from left
     print('机位id初始化, unique position_ids present: ', np.unique(position_id))
 
     # 裁剪方式初始化
@@ -438,6 +476,7 @@ if __name__ == '__main__':
         while crop_id[slice_id==i][0] == crop_id[slice_id==i-1][0] or (crop_id[slice_id==i][0] in [3,4] and crop_id[slice_id==i-1][0] in [3,4]): # make sure its not two consecutive actors at the same time
             crop_id[slice_id==i] = np.random.randint(0,len(actor_id_list)+2)
     crop_id[crop_id==4] = 3
+    
     # halfbody 初始化
     halfbody_id = slice_id.copy()
     for i in range(0,int(np.max(slice_id))+1):
@@ -468,6 +507,7 @@ if __name__ == '__main__':
         i -= 1
     unique, counts = np.unique(slice_id, return_counts=True)
     dict_numframesperslice = dict(zip(unique, counts))
+    print(dict_numframesperslice)
 
     ## 读取场景理解信息
     df1=pd.read_pickle(pkl1)

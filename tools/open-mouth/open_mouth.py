@@ -65,22 +65,26 @@ if frame_width is not None:
 if frame_height is not None:
 	frame_height = int(args["height"])
 
-# Define the codec and create VideoWriter object.The output is stored in 'outpy.avi' file.
-if frame_width is not None and frame_height is not None:
-	out = cv2.VideoWriter('outpy.avi',cv2.VideoWriter_fourcc('M','J','P','G'), 30, (frame_width,frame_height))
-else:
-	out = cv2.VideoWriter('outpy.avi',cv2.VideoWriter_fourcc('M','J','P','G'), 30, (640, 360))
-
-
 count = 0
+
+colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255), (255, 0, 255)]
 
 # loop over frames from the video stream
 with open(args["output"], 'w') as f:
+	out = None
 	while True:
 		# grab the frame from the threaded video file stream, resize
 		# it, and convert it to grayscale
 		# channels)
 		frame = fvs.read()
+		# Define the codec and create VideoWriter object.The output is stored in 'outpy.avi' file.
+		if count == 0:
+			if frame_width is not None and frame_height is not None:
+				out = cv2.VideoWriter('outpy.avi',cv2.VideoWriter_fourcc('M','J','P','G'), 30, (frame_width,frame_height))
+			else:
+				out = cv2.VideoWriter('outpy.avi',cv2.VideoWriter_fourcc('M','J','P','G'), 30, (frame.shape[1], frame.shape[0]))
+
+
 		
 		if frame is None:
 			break
@@ -92,7 +96,10 @@ with open(args["output"], 'w') as f:
 		rects = detector(gray, 0)
 
 		# loop over the face detections
-		for rect in rects:
+
+		for i in range(len(rects)):
+			rect = rects[i]
+			color = colors[i]
 			# determine the facial landmarks for the face region, then
 			# convert the facial landmark (x, y)-coordinates to a NumPy
 			# array
@@ -108,14 +115,15 @@ with open(args["output"], 'w') as f:
 			# visualize the mouth
 			mouthHull = cv2.convexHull(mouth)
 
-			cv2.drawContours(frame, [mouthHull], -1, (0, 255, 0), 1)
-			cv2.putText(frame, "MAR: {:.2f}".format(mar), (30, 30),
-				cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-
+			cv2.drawContours(frame, [mouthHull], -1, color, 3)
+			cv2.putText(frame, "MAR: {:.2f}".format(mar), (30, 60 + 60 * i * 6),
+				cv2.FONT_HERSHEY_SIMPLEX, 2, color, 5)
+			cv2.putText(frame, "Pos: " + str(rect), (30, 60 + 60 + 60 * i * 6),
+				cv2.FONT_HERSHEY_SIMPLEX, 2, color, 5)
 			# Draw text if mouth is open
 			if mar > MOUTH_AR_THRESH:
-				cv2.putText(frame, "Mouth is Open!", (30,60),
-				cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,255),2)
+				cv2.putText(frame, "Mouth is Open!", (30, 60 + 120 + 60 * i * 6),
+				cv2.FONT_HERSHEY_SIMPLEX, 2, color, 5)
 			
 			print(count, rect, mar, 1 if mar > MOUTH_AR_THRESH else 0, file = f)
 		# Write the frame into the file 'output.avi'

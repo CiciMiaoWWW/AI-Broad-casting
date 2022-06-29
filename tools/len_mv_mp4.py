@@ -1,5 +1,5 @@
 """
-python tools/len_mv_mp4.py --srcvidfiles align-videos/A_5min_large2.mp4 align-videos/L_5min_large2.mp4 align-videos/R_5min_large2.mp4 --output_name out_5min_ts_conf075_offl15r91_lens400.mp4 --pklfiles L_5min_labeled_smooth.pkl R_5min_labeled_smooth.pkl --crop_flag --len_mv_flag --len_mv_steps 400 --bbox_conf_thresh 0.75 --q_sz 256 --decode_sleep 1.0 --audioseg_pkl audio_segmentation/5min_audioseg.pkl
+Sample command: python tools/len_mv_mp4.py --srcvidfiles brass/brass_A_2min.mp4 brass/brass_L_2min.mp4 brass/brass_R_2min.mp4 --output_name out_2min_vertblur.mp4 --pklfiles brass_A_2min_lowres_labeled_smooth.pkl brass_L_2min_lowres_labeled_smooth.pkl brass_R_2min_lowres_labeled_smooth.pkl --crop_flag --len_mv_flag --len_mv_steps 400 --bbox_conf_thresh 0.82 --actor_num 5 --w 1080 --h 1920 --mode_wideshot 2
 """
 import cv2, os
 import numpy as np
@@ -18,15 +18,15 @@ def process_video():
     ## 写MP4
     video_writer = cv2.VideoWriter(output_name, cv2.VideoWriter_fourcc(*'MP4V'), fps, (w, h))
     flag_start = True
-    # process frames in current group
+    # process frame
     for frame_cur_num in tqdm(range(total_frame_num)):
         # init and update parameters at start of each frame
         frame_cur_num = int(frame_cur_num)
         curr_slice_id = slice_id[frame_cur_num]
 
-        if flag_start: # start of every group of frames, might not be the beginning of a slice
+        if flag_start: # first frame
             flag_start = False
-            curr_step = frame_cur_num - list(slice_id).index(curr_slice_id) # init curr_step for lens movement, curr_step=0 at the start of each slice 
+            curr_step = 0 # init curr_step for lens movement, curr_step=0 at the start of each slice 
             if position_id[frame_cur_num] == 0:
                 fvs = FileVideoStream(os.path.join(data_root, src_list[position_id[frame_cur_num]]), queueSize=q_sz, startframenum=frame_cur_num, num_frames_tot=dict_numframesperslice[curr_slice_id]).start()
             elif position_id[frame_cur_num] == 1:
@@ -38,7 +38,6 @@ def process_video():
             x1_prev, y1_prev, x2_prev, y2_prev = 0, 0, width, height # init previous coords values
         # 确定当前时刻是否换机位，如果不换则延续上一帧reader 
         elif (slice_id[frame_cur_num] != slice_id[frame_cur_num-1]):
-            #cap = cv2.VideoCapture(os.path.join(data_root, src_list[position_id[frame_cur_num]]))
             if position_id[frame_cur_num] == 0:
                 fvs = FileVideoStream(os.path.join(data_root, src_list[position_id[frame_cur_num]]), queueSize=q_sz, startframenum=frame_cur_num, num_frames_tot=dict_numframesperslice[curr_slice_id]).start()
             elif position_id[frame_cur_num] == 1:
@@ -50,32 +49,27 @@ def process_video():
         else:
             curr_step = curr_step + 1 # increment for increased lens mvt
 
-        img=fvs.read()  #read方法返回一个布尔值和一个视频帧。若帧读取成功，则返回True
+        img = fvs.read()  #read方法返回一个视频帧
         height, width, _ = img.shape
         len_mv = MvLens(width, height, w, h, padding_scale=padding_scale) # init mvlens
 
         # 对img进行运镜、裁剪、resize 
         # 如果需要单人特写：裁剪 + 画质增强
-        if crop_flag and crop_id[frame_cur_num]<=2: # for 单人特写
+        if crop_flag and crop_id[frame_cur_num]<actor_amount: # for 单人特写
             # get bounding boxes coords
-            df = df_list[position_id[frame_cur_num]-1]
+            df = df_list[position_id[frame_cur_num]]
             info = df[(df['actor_id']==crop_id[frame_cur_num])&(df['frameid']==str(frame_cur_num+1))]
+            idx_conf_max = np.argmax(np.array(info['conf'])) #pick bbox with highest confidence
+            info = info.iloc[[idx_conf_max]]
             info = info.reset_index(drop=True)
 
             found = False # check if intended actor bbox found in current frame
             if info.shape[0] > 0:
-                for i in range(info.shape[0]):
-                    if float(info['conf'][i]) > bbox_conf_thresh: # only select bbox with high enough confidence to avoid false detections
-                        x1,y1,x2,y2 = float(info['x1'][i])*width,float(info['y1'][i])*height,float(info['x2'][i])*width,float(info['y2'][i])*height
-                        # prevent large changes in crop box over consecutive frames
-                        if [x1_prev, y1_prev, x2_prev, y2_prev] != [0, 0, width, height] and curr_step!=0: 
-                            change_thresh = [(x2_prev-x1_prev)*0.1, (y2_prev-y1_prev)*0.1] # set threshold at 10% of bbox width, height
-                            if abs(x1-x1_prev)>change_thresh[0] or abs(x2-x2_prev)>change_thresh[0] or abs(y1-y1_prev)>change_thresh[1] or abs(y2-y2_prev)>change_thresh[1]:
-                                x1, y1, x2, y2 = x1_prev, y1_prev, x2_prev, y2_prev
-                        # update prev coords values
-                        x1_prev, y1_prev, x2_prev, y2_prev = x1, y1, x2, y2
-                        found = True
-                        break           
+                if float(info['conf'][0]) > bbox_conf_thresh: # only select bbox with high enough confidence to avoid false detections
+                    x1,y1,x2,y2 = float(info['x1'][0])*width,float(info['y1'][0])*height,float(info['x2'][0])*width,float(info['y2'][0])*height
+                    # update prev coords values
+                    x1_prev, y1_prev, x2_prev, y2_prev = x1, y1, x2, y2
+                    found = True           
             if not found: # if intended actor bbox not found in this frame
                 if curr_step != 0:
                     x1, y1, x2, y2 = x1_prev, y1_prev, x2_prev, y2_prev # use bbox from previous frame
@@ -86,9 +80,12 @@ def process_video():
                     elif position_id[frame_cur_num] == 2: #R
                         x1,y1,x2,y2 = wide_crop_boxes[2]
                         x1,y1,x2,y2 = x1*width, y1*height, x2*width, y2*height
-                    crop_id[slice_id==curr_slice_id] = 3 # set to 左右全景
+                    elif position_id[frame_cur_num] == 0: #A
+                        x1,y1,x2,y2 = wide_crop_boxes[0]
+                        x1,y1,x2,y2 = x1*width, y1*height, x2*width, y2*height
+                    crop_id[slice_id==curr_slice_id] = leftid # set to 左右全景
                     len_mv_id[slice_id==curr_slice_id] = 0 # set to still
-        elif crop_id[frame_cur_num] ==3:
+        elif crop_id[frame_cur_num] ==leftid:
             if position_id[frame_cur_num] == 1: #L
                 x1,y1,x2,y2 = wide_crop_boxes[1]
                 x1,y1,x2,y2 = x1*width, y1*height, x2*width, y2*height
@@ -98,39 +95,90 @@ def process_video():
         else: # for 全景 
             x1,y1,x2,y2 = wide_crop_boxes[0]
             x1,y1,x2,y2 = x1*width, y1*height, x2*width, y2*height
-                
+
         if len_mv_flag:
-            # apply lens movement: 目前全部的运镜设置成同样的 speed, but possible to have different speed for each slice
-            if halfbody_id[frame_cur_num] and crop_flag and crop_id[frame_cur_num]<=2: 
-                x1_, y1_, x2_, y2_ = len_mv.apply_lensmv(x1, y1, x2, y2 - (y2-y1)/2, curr_step, len_mv_id[frame_cur_num], len_mv_steps)
+            ## set len_mv speed for 全景 L, R
+            if curr_step == 0:
+                if crop_id[frame_cur_num] < actor_amount: 
+                    # add padding
+                    x1_min = max(x1 - 3*(x2-x1), 0)
+                    x2_max = min(x2 + 3*(x2-x1), width)
+                    pix2move = min(x2_max-x2, x1-x1_min)
+
+                    # calculate len_mv speed
+                    if len_mv_id[frame_cur_num] in [1, -1]: # move left, right
+                        len_mv_steps_actor = (x2-x1)/(pix2move)*dict_numframesperslice[curr_slice_id]
+                    else:
+                        len_mv_steps_actor = len_mv_steps
+                elif crop_id[frame_cur_num]>=actor_amount:
+                    # find leftmost rightmost coords such that actor bboxes still present
+                    df = df_list[position_id[frame_cur_num]]
+                    info = df[df['frameid']==str(frame_cur_num+1)]
+                    info = info.reset_index(drop=True)
+                    x1_min, x2_max = width, 0 # init
+                    arr_avg_act_w = []
+                    for row in range(info.shape[0]):
+                        if float(info['conf'][row]) > bbox_conf_thresh: # only select bbox with high enough confidence to avoid false detections
+                            x1__,y1__,x2__,y2__ = float(info['x1'][row])*width,float(info['y1'][row])*height,float(info['x2'][row])*width,float(info['y2'][row])*height
+                            if x1__ < x1_min:
+                                x1_min = x1__
+                            if x2__ > x2_max:
+                                x2_max = x2__
+                            arr_avg_act_w.append(x2__ - x1__)
+                    avg_act_w = sum(arr_avg_act_w) / len(arr_avg_act_w)
+                    
+                    # add padding
+                    x1_min = max(x1_min - avg_act_w, 0)
+                    x2_max = min(x2_max + 2*avg_act_w, width)
+                    pix2move = min(x2_max-x2, x1-x1_min)
+
+                    # calculate len_mv speed
+                    if len_mv_id[frame_cur_num] in [1, -1]: # move left, right
+                        len_mv_steps_wide = (x2-x1)/(pix2move)*dict_numframesperslice[curr_slice_id]
+                    else:
+                        len_mv_steps_wide = len_mv_steps
+
+            ## apply lens movement (variable speed for each slice)
+            if halfbody_id[frame_cur_num] and crop_flag and crop_id[frame_cur_num]<actor_amount: 
+                x1_, y1_, x2_, y2_ = len_mv.apply_lensmv(x1, y1, x2, y2 - (y2-y1)/2, curr_step, len_mv_id[frame_cur_num], len_mv_steps_actor)
             elif h > w and mode_wideshot==3:
-                x1_, y1_, x2_, y2_ = len_mv.apply_lensmv(x1, y1, x2, y2, curr_step, 1, 60) # right panning
+                if curr_step == 0:
+                    bool_slideleft = np.random.randint(0, 2)
+                x1_, y1_, x2_, y2_ = len_mv.apply_lensmv(x1, y1, x2, y2, curr_step, [1,-1][bool_slideleft], 60) # right panning
             else:
-                x1_, y1_, x2_, y2_ = len_mv.apply_lensmv(x1, y1, x2, y2, curr_step, len_mv_id[frame_cur_num], len_mv_steps)
+                x1_, y1_, x2_, y2_ = len_mv.apply_lensmv(x1, y1, x2, y2, curr_step, len_mv_id[frame_cur_num], len_mv_steps_wide)
             
         # post crop processing: padding + ensure aspect ratio
         x1_p, y1_p, x2_p, y2_p = len_mv.post_crop_processing(x1_, y1_, x2_, y2_) # after len mvt
+        #print("len move: ", x1_,y1_,x2_,y2_)
+        #print("posproc: ", x1_p,y1_p,x2_p,y2_p)
     
         # check if bbox still present after len mv
-        if crop_flag and crop_id[frame_cur_num]<=2:
+        if crop_flag and crop_id[frame_cur_num]<actor_amount:
             if halfbody_id[frame_cur_num]:
                 if (x1_p > x1) or (y1_p > y1) or (x2_p < x2) or (y2_p < y2/2):
                     curr_step = curr_step - 1 # stop lens movement
             else:
                 if (x1_p > x1) or (y1_p > y1) or (x2_p < x2) or (y2_p < y2):
                     curr_step = curr_step - 1 # stop lens movement
-        elif crop_id[frame_cur_num] == 3 and mode_wideshot!=3:
+        elif crop_id[frame_cur_num] >= actor_amount and mode_wideshot!=3:
+            # for 全景 we simply adjust len mv speed instead of stopping movement abruptly
+            """
             if (x1_p > x1)  or (x2_p < x2):
+                curr_step = curr_step - 1 # stop lens movement
+            """
+        elif mode_wideshot==3:
+            if (x1_p < width*0.1 and bool_slideleft==1) or (x2_p > width*0.9 and bool_slideleft==0):
                 curr_step = curr_step - 1 # stop lens movement
         
         # final output frame to be rendered
-        if h > w and crop_id[frame_cur_num] > 2 and mode_wideshot!=3: # vertical mode dealing with wide shots
+        if h > w and crop_id[frame_cur_num] >= actor_amount  and mode_wideshot!=3: # vertical mode dealing with wide shots
             out = len_mv.vertmode_wideshot_processing(x1_, y1_, x2_, y2_, mode_wideshot, img) # coordinates before postprocessing
         else:
             img = img[int(y1_p):int(y2_p),int(x1_p):int(x2_p),:] # int might introduce rounding errors?
             out = cv2.resize(img, (w, h), interpolation=cv2.INTER_LANCZOS4)
         video_writer.write(out)
-
+        
 
 class MvLens: # for lens movement, and post-processing (padding + ensuring aspect ratio)
     def __init__(self, fullwidth, fullheight, des_width, des_height, padding_scale=1.1):
@@ -318,7 +366,6 @@ class FileVideoStream:
                     self.stop()
                     return
                 
-
     def read(self):
         # return next frame in the queue
         return self.Q.get()
@@ -337,7 +384,7 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument("--srcvidfiles", required=True,  action='store', type=str, nargs=3, help='大全、左、右机位的 source videos, 第一个一定要是大全')
     ap.add_argument("--output_name", required=True, type=str, default="out.mp4", help='output filename')
-    ap.add_argument("--pklfiles", required=True,  action='store', type=str, nargs=2, help='smoothing 之后的 pkl file, 分别是左、右机位的 order')
+    ap.add_argument("--pklfiles", required=True,  action='store', type=str, nargs='+', help='smoothing 之后的 pkl file, 分别是左、右机位的 order')
     ap.add_argument("--audioseg_pkl", type=str, help='optional, pkl file containing pandas dataframe of time segmentations based on audio, if None then use random time segmentations')
     ap.add_argument("--crop_flag", action='store_true', help='allow 人员特写')
     ap.add_argument("--len_mv_flag", action='store_true', help='allow 运镜效果')
@@ -349,6 +396,7 @@ if __name__ == '__main__':
     ap.add_argument("--q_sz", action='store', type=int, default=256, help='buffer size to store video frames, depends on video res and system memory')
     ap.add_argument("--decode_sleep", action='store', type=float, default=1.0, help='time(s) to sleep for thread to decode the video frames in buffer')
     ap.add_argument("--mode_wideshot", type=int, default=0, help='set how 全景 is diplayed in vertical mode: 0 - padding with black pixels; 1 - padding with reflection; 2 - blur background; 3 - slide and move across scene')
+    ap.add_argument("--actor_num", required=True, type=int, default=3, help='number of actors')
     args = vars(ap.parse_args())
 
     ## 设置参数
@@ -359,7 +407,7 @@ if __name__ == '__main__':
     output_name = args["output_name"] #'out.mp4'
     output_path = os.path.join(data_root, output_name)
     # 场景理解pkl
-    pkl1, pkl2 = args["pklfiles"]
+    pkl_list = args["pklfiles"]
     pkl_audioseg = args["audioseg_pkl"] #'audio_segmentation/5min_audioseg.pkl'
     w = args["w"] #1920
     h = args["h"] #1080
@@ -373,9 +421,9 @@ if __name__ == '__main__':
     # lens movement total steps, for slower movement put larger steps
     len_mv_steps = args["len_mv_steps"]
     # 可能的裁剪情况：大全（开场谢幕用）、每个人员的特写、舞台所有人全画幅展示（左右机位）、多个演员之间的互动（后面再说）
-    actor_amount =  3
-    position_amount = 3
-    assert position_amount==len(src_list), "错误提示：机位个数和输入视频数不等"
+    actor_amount =  args["actor_num"]
+    position_amount = len(src_list)
+    #assert position_amount==len(src_list), "错误提示：机位个数和输入视频数不等"
     # 开头和结尾slice帧数，初始化75，大约各3s大全，可改
     res_frame = 75
     # 每个slice平均时长，假定每个slice的平均时长是6s（约150帧），可改
@@ -383,17 +431,22 @@ if __name__ == '__main__':
     # 每个slice的最小时长，e.g., 4s，可改
     min_stay = 100
     # 演员id初始化 Tips: 更新底库需重写
-    actor_id_list = [0,1,2]
+    actor_id_list = list(range(actor_amount))
     # sleep after decoding frame, 否则解帧会一直抢主进程的CPU到100%，不给其他线程CPU空间进行图像预处理和后处理
     decode_sleep = args["decode_sleep"]
     q_sz = args["q_sz"]
-    # crop box (x1,y1,x2,y2) for 全景：大全、左、右机位
-    wide_crop_boxes = [[0.333, 0.333, 0.667, 1], [0.1, 0.4, 0.9, 1], [0.25, 0.333, 0.875, 1]]
+    # crop box (x1,y1,x2,y2) for 全景：大全、左、右机位 
+    # (ENSURE NOT TOO WIDE, otherwise will have problems for zin/zout --> coords become negative after post_processing)
+    #wide_crop_boxes = [[0.333, 0.333, 0.667, 1], [0.1, 0.4, 0.9, 1], [0.25, 0.333, 0.875, 1]]
+    #wide_crop_boxes = [[0.3, 0.15, 0.7, 0.75], [0.25, 0.15, 0.75, 0.8], [0.3, 0.15, 0.8, 0.8]]
+    wide_crop_boxes = [[0.15, 0.3, 0.8, 0.9], [0.1, 0.1, 0.9, 0.9], [0.1, 0.3, 0.7, 0.8]]
     # vertical mode
     # set how 全景 is diplayed in vertical mode: 0 - padding with black pixels; 1 - blur background; 2 - split screen into 3 actors; 3- split into gray + col + gray, 4 - slide and move across scene
     mode_wideshot = args["mode_wideshot"] # 0, 1, 2, 3, 4
     if mode_wideshot == 3: # slide and move across scene
-        wide_crop_boxes = [[0.333, 0.333, 0.444, 1], [0.05, 0.4, 0.3, 1], [0.2, 0.333, 0.4, 1]]
+        wide_crop_boxes = [[0.15, 0.15, 0.35, 0.9], [0.1, 0.15, 0.3, 0.9], [0.1, 0.15, 0.3, 0.9]]
+        #[[0.2, 0.15, 0.4, 0.75], [0.15, 0.15, 0.35, 0.8], [0.2, 0.15, 0.4, 0.8]]
+        #[[0.333, 0.333, 0.444, 1], [0.05, 0.4, 0.3, 1], [0.2, 0.333, 0.4, 1]]
         
    
     ## 随机初始化
@@ -463,24 +516,33 @@ if __name__ == '__main__':
     # 机位id初始化
     position_id = slice_id.copy()
     for i in range(1,int(np.max(slice_id))+1): 
-        position_id[slice_id==i] = np.random.randint(1,len(src_list))
+        position_id[slice_id==i] = np.random.randint(0,len(src_list))
     position_id = position_id.astype(np.int32)
     print('机位id初始化, unique position_ids present: ', np.unique(position_id))
 
     # 裁剪方式初始化
     # 可能的裁剪情况：每个人员的特写（演员id，0-2)、舞台所有人全画幅展示（左右机位）3、 大全（开场谢幕用）5
+    leftid = len(actor_id_list)
+    rightid = len(actor_id_list) + 1
+    allid = len(actor_id_list) + 2
     crop_id = slice_id.copy()
     crop_id[slice_id==0] = len(actor_id_list)+2
+    show_actor = 0
     for i in range(1,int(np.max(slice_id))+1):
-        crop_id[slice_id==i] = np.random.randint(0,len(actor_id_list)+2)
-        while crop_id[slice_id==i][0] == crop_id[slice_id==i-1][0] or (crop_id[slice_id==i][0] in [3,4] and crop_id[slice_id==i-1][0] in [3,4]): # make sure its not two consecutive actors at the same time
+        show_actor = np.random.randint(0,2) # 50% actor, 50% full view
+        if show_actor == 1:
+            crop_id[slice_id==i] = np.random.randint(0,len(actor_id_list))
+        else:
+            crop_id[slice_id==i] = [leftid, rightid][np.random.randint(0,2)]
+        while crop_id[slice_id==i][0] == crop_id[slice_id==i-1][0] or (crop_id[slice_id==i][0] in [leftid,rightid] and crop_id[slice_id==i-1][0] in [leftid,rightid]): # make sure its not two consecutive actors at the same time
             crop_id[slice_id==i] = np.random.randint(0,len(actor_id_list)+2)
-    crop_id[crop_id==4] = 3
+    crop_id[crop_id==rightid] = leftid
+    crop_id[slice_id==3] = 3 # set this slice to pink girl
     
     # halfbody 初始化
     halfbody_id = slice_id.copy()
     for i in range(0,int(np.max(slice_id))+1):
-        halfbody_id[slice_id==i] = np.random.randint(0,2) # 0: fullbody, 1: halfbody
+        halfbody_id[slice_id==i] = 1 #np.random.randint(0,2) # 0: fullbody, 1: halfbody
     print('裁剪方式初始化, unique crop_ids present: ', np.unique(crop_id))
 
     # 运镜方式初始化，可组合：0 None, 1 left, -1 right, 3 zoomin, -3 zoomout, 4 left zoomin, -4 right zoomout, 5 right zoomin, -5 left zoomout
@@ -495,7 +557,7 @@ if __name__ == '__main__':
                 len_mv_id[slice_id==i] = len_mv_opts_halfbody[np.random.randint(0, len(len_mv_opts_halfbody))]
             else:
                 len_mv_id[slice_id==i] = len_mv_opts[np.random.randint(0, len(len_mv_opts))]
-            if crop_id[slice_id==i][0] == 3: # for 左右机位, only allow left right panning
+            if crop_id[slice_id==i][0] == leftid: # for 左右机位, only allow left right panning
                 len_mv_id[slice_id==i] = [-1,1][np.random.randint(0, 2)]
     else:
         len_mv_id = [0]*len(len_mv_id) # no 运镜
@@ -510,9 +572,10 @@ if __name__ == '__main__':
     print(dict_numframesperslice)
 
     ## 读取场景理解信息
-    df1=pd.read_pickle(pkl1)
-    df2=pd.read_pickle(pkl2)
-    df_list = [df1,df2]
+    df_list = []
+    for i in range(len(pkl_list)):
+        df_tmp = pd.read_pickle(pkl_list[i])
+        df_list.append(df_tmp)
 
     ## start processing of video frames
     process_video()

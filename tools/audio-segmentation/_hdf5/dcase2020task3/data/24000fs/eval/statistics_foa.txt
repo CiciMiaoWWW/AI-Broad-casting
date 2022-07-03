@@ -1,0 +1,3 @@
+Total number of audio clips extracted: 1
+Total number of silent audio clips is: 0
+

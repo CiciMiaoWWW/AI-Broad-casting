@@ -5,7 +5,7 @@ from Centre for Vision, Speech and Signal Processing, University of Surrey.
 
 
 ## Usage
-wth
+
 the model pth weights should stored under`out_train/ein_seld/EINV2_tPIT_n1/checkpoints`
 
 Hyper-parameters are stored in `./configs/ein_seld/seld.yaml`. You can change some of them, such as `train_chunklen_sec`, `train_hoplen_sec`, `test_chunklen_sec`, `test_hoplen_sec`, `batch_size`, `lr` and others.
